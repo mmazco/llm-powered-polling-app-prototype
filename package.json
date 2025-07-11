@@ -1,0 +1,54 @@
+{
+  "name": "llm-powered-polling-app-prototype",
+  "version": "1.0.0",
+  "description": "LLM-powered polling app prototype",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "backend": "cd backend && python main.py",
+    "install-backend": "cd backend && pip install -r requirements.txt"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "next": "^14.0.0",
+    "typescript": "^5.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/node": "^20.0.0",
+    "tailwindcss": "^3.3.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "lucide-react": "^0.292.0",
+    "clsx": "^2.0.0",
+    "framer-motion": "^10.16.0",
+    "recharts": "^2.8.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "eslint-config-next": "^14.0.0",
+    "@tailwindcss/forms": "^0.5.7"
+  },
+  "keywords": [
+    "llm",
+    "polling",
+    "prototype",
+    "community",
+    "governance",
+    "react",
+    "nextjs",
+    "fastapi",
+    "openai",
+    "civic-tech"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/llm-powered-polling-app-prototype.git"
+  },
+  "homepage": "https://github.com/yourusername/llm-powered-polling-app-prototype#readme"
+} 
