@@ -53,13 +53,16 @@
 - 🎨 **Custom UI/UX** tailored to specific needs
 - 🏢 **Easier deployment** for small organizations
 
-## 🔄 User Flow (Current)
+## 🔄 User Flow
+
+**Production:** https://llm-powered-polling-app-prototype.vercel.app
+**Development:** localhost:3000
 
 ```
-localhost:3000 → Community Context Form → Generate Topic → Display Results → Launch Poll (WIP)
-     ↓                    ↓                    ↓              ↓               ↓
-  Next.js UI        Fill location,       Backend API    Show topic &     Navigate to
-                   population, issues   (GPT-4/demo)   statements       voting interface
+Web App → Community Context Form → Generate Topic → Display Results → Launch Poll
+    ↓                ↓                    ↓              ↓               ↓
+Next.js UI    Fill location,       Backend API    Show topic &     Navigate to
+             population, issues   (GPT-4/demo)   statements       voting interface
 ```
 
 ## 🗺️ Domain Detection Algorithm

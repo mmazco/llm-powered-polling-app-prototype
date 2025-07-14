@@ -135,7 +135,7 @@ npm run backend
 npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) to see the app!
+Visit [https://llm-powered-polling-app-prototype.vercel.app](https://llm-powered-polling-app-prototype.vercel.app) to see the app!
 
 ## 📖 Usage
 
