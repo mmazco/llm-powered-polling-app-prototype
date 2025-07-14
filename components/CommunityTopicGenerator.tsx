@@ -89,7 +89,7 @@ const CommunityTopicGenerator = () => {
       console.log('Sending request:', requestData);
       console.log('Current formData.topicDomain:', formData.topicDomain);
       
-      const response = await fetch('http://localhost:8001/generate-topic', {
+      const response = await fetch('https://llm-powered-polling-app-prototype-production.up.railway.app/generate-topic', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

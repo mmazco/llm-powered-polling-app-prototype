@@ -8,7 +8,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8001/:path*',
+        destination: 'https://llm-powered-polling-app-prototype-production.up.railway.app/:path*',
       },
     ];
   },
