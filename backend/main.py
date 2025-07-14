@@ -479,27 +479,45 @@ class DemoTopicGenerator:
             logger.error(f"Error generating demo topic: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Demo topic generation failed: {str(e)}")
 
-async def generate_topic_with_llm(context: CommunityContext) -> GeneratedTopic:
+async def generate_topic_with_llm(context: CommunityContext, topic_domain: str = None) -> GeneratedTopic:
     """Generate a polling topic using OpenAI's GPT model"""
+    
+    # Map topic domain to specific focus areas
+    domain_prompts = {
+        "housing": "Focus on housing affordability, development, zoning, and community character",
+        "transportation": "Focus on public transit, traffic, parking, bike/pedestrian infrastructure",
+        "education": "Focus on school funding, curriculum, teacher resources, and student outcomes", 
+        "crime-public-safety": "Focus on policing, crime prevention, community safety, and justice reform",
+        "economic-development": "Focus on local business, jobs, economic growth, and workforce development",
+        "infrastructure-services": "Focus on utilities, roads, public services, and municipal infrastructure",
+        "local-economy": "Focus on small business support, economic opportunities, and community development"
+    }
+    
+    domain_guidance = domain_prompts.get(topic_domain, "Focus on the most pressing community issues")
     
     prompt = f"""
     Create a community polling topic for {context.location} with a population of {context.population_size or 'unknown'}.
+    
+    Topic Domain: {topic_domain or 'General Community Issues'}
+    Specific Focus: {domain_guidance}
     
     Current issues in the community: {', '.join(context.current_issues or [])}
     Previous topics covered: {', '.join(context.previous_topics or [])}
     
     Generate a JSON response with:
-    1. A compelling title for the polling topic
+    1. A compelling title for the polling topic specific to {context.location} and {topic_domain or 'community issues'}
     2. A brief description of what the poll will explore
     3. A main theme question
     4. 8-12 diverse statements that represent different viewpoints on the topic
     5. 4-6 expected opinion clusters that voters might fall into
     
     Each statement should:
-    - Be specific and actionable
-    - Represent a distinct viewpoint
-    - Be relevant to the community context
+    - Be specific and actionable for {context.location}
+    - Represent a distinct viewpoint on {topic_domain or 'community issues'}
+    - Be relevant to the community context and demographics
     - Have a category and expected cluster
+    
+    Make the content unique and specific to {context.location} rather than generic.
     
     Format the response as JSON with this structure:
     {{
@@ -529,7 +547,7 @@ async def generate_topic_with_llm(context: CommunityContext) -> GeneratedTopic:
         response = openai_client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an expert in community engagement and polling design. Generate thoughtful, balanced polling topics that encourage civic participation."},
+                {"role": "system", "content": "You are an expert in community engagement and polling design. Generate thoughtful, balanced polling topics that encourage civic participation. Make content specific to the location and topic domain provided."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2000,
@@ -556,7 +574,8 @@ async def generate_topic_with_llm(context: CommunityContext) -> GeneratedTopic:
             "community_location": context.location,
             "statement_count": len(statements),
             "generation_method": "llm",
-            "model": "gpt-4"
+            "model": "gpt-4",
+            "topic_domain": topic_domain
         }
         
         return GeneratedTopic(
@@ -574,6 +593,7 @@ async def generate_topic_with_llm(context: CommunityContext) -> GeneratedTopic:
         demo_generator = DemoTopicGenerator()
         return await demo_generator.generate_topic(TopicRequest(
             community_context=context,
+            topic_domain=topic_domain,
             statement_count=10
         ))
 
@@ -594,7 +614,7 @@ async def generate_topic_endpoint(request: TopicRequest):
         if openai_client:
             try:
                 logger.info("Using OpenAI LLM generation")
-                return await generate_topic_with_llm(request.community_context)
+                return await generate_topic_with_llm(request.community_context, request.topic_domain)
             except Exception as e:
                 logger.warning(f"OpenAI generation failed, falling back to demo: {str(e)}")
                 return await topic_generator.generate_topic(request)
