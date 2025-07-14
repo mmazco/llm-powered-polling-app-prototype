@@ -198,7 +198,7 @@ python -m pytest  # if you have tests
 uvicorn main:app --reload
 
 # Full E2E Test
-curl -X POST "http://localhost:8001/generate-topic" \
+curl -X POST "https://your-backend-url.up.railway.app/generate-topic" \
   -H "Content-Type: application/json" \
   -d '{"community_context": {"location": "Test City", "population_size": 50000}}'
 ```

@@ -7,6 +7,7 @@
 - **Backend**: FastAPI + Python 3.13
 - **LLM**: OpenAI GPT-4 (with demo fallback)
 - **Development**: localhost:3000 (frontend) + localhost:8001 (backend)
+- **Production**: Vercel (frontend) + Railway (backend)
 
 ### **LLM Configuration**
 - **Primary**: OpenAI GPT-4 (requires `OPENAI_API_KEY`)
