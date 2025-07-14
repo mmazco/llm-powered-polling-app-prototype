@@ -590,8 +590,17 @@ async def generate_topic_endpoint(request: TopicRequest):
         # Debug logging
         logger.info(f"Received request - topic_domain: {request.topic_domain}, location: {request.community_context.location}")
         
-        # Always use demo generator for now to ensure domain mapping works
-        return await topic_generator.generate_topic(request)
+        # Try OpenAI LLM first, fallback to demo if no API key or error
+        if openai_client:
+            try:
+                logger.info("Using OpenAI LLM generation")
+                return await generate_topic_with_llm(request.community_context)
+            except Exception as e:
+                logger.warning(f"OpenAI generation failed, falling back to demo: {str(e)}")
+                return await topic_generator.generate_topic(request)
+        else:
+            logger.info("No OpenAI API key, using demo generation")
+            return await topic_generator.generate_topic(request)
         
     except Exception as e:
         logger.error(f"Error generating topic: {str(e)}")
