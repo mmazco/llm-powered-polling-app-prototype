@@ -318,8 +318,7 @@ class DemoTopicGenerator:
                 {"name": "Character Preservationists", "description": "Protect existing neighborhood character"},
                 {"name": "Housing Advocates", "description": "Increase supply through zoning reform"},
                 {"name": "Affordability Focus", "description": "Prevent displacement and reduce costs"},
-                {"name": "Community Investment", "description": "Ensure development benefits residents"},
-                {"name": "Sustainability Focus", "description": "Prioritize environmental and energy considerations"}
+                {"name": "Community Investment", "description": "Ensure development benefits residents"}
             ],
             "education": [
                 {"name": "Basic Academics", "description": "Focus on core subjects and fundamentals"},
@@ -509,7 +508,7 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
     2. A brief description of what the poll will explore
     3. A main theme question
     4. 8-12 diverse statements that represent different viewpoints on the topic
-    5. 4-6 expected opinion clusters that voters might fall into
+    5. Exactly 4 expected opinion clusters that voters might fall into
     
     Each statement should:
     - Be specific and actionable for {context.location}
