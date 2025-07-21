@@ -296,17 +296,21 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ### 🔗 Poll Sharing System
 - **Unique Poll URLs**: Each generated poll can be saved with a unique shareable URL
-- **Database Storage**: SQLite-based storage for persistent poll data
+- **Database Storage**: SQLite-based storage for persistent poll data and all participant responses
 - **Easy Sharing**: One-click sharing with copy-to-clipboard functionality
 - **Shared Poll Interface**: Dedicated page for participants to access shared polls
 - **Creator Attribution**: Optional creator names displayed on shared polls
+- **Response Collection**: All participant votes automatically saved to database
+- **Aggregated Results**: Community-wide analysis with individual and collective insights
+- **Real-time Updates**: Results reflect all participants' responses as they vote
 
 ### 🎯 How to Share a Poll
 1. **Generate a Poll** using the main interface
 2. Click **"Share This Poll"** button after generation
 3. **Copy the generated link** and share with your community
 4. **Participants access** the poll via the shared URL
-5. **View results** on the same results page with combined data
+5. **All responses automatically collected** in database
+6. **View aggregated results** showing community-wide data plus individual analysis
 
 ### 📈 Analytics Dashboard
 The app tracks:
