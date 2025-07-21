@@ -289,7 +289,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🔗 Poll Sharing & Analytics
 
 ### 📊 User Activity Tracking
-- **Google Analytics Integration**: Track page views, user engagement, and poll interactions
+- **Google Tag Manager Integration**: Comprehensive tracking with GTM for flexible analytics management
 - **Backend Activity Logging**: Comprehensive server-side tracking of API usage and user behavior
 - **Event Tracking**: Monitor topic generation, poll launches, votes, and sharing activities
 - **Performance Analytics**: Track generation methods (LLM vs demo), success rates, and error patterns

@@ -1,15 +1,16 @@
-// Google Analytics tracking utilities
+// Google Tag Manager tracking utilities
 
 declare global {
   interface Window {
-    gtag: (command: string, ...args: any[]) => void;
+    dataLayer: any[];
   }
 }
 
 // Track page views
 export const trackPageView = (url: string) => {
-  if (typeof window !== 'undefined' && window.gtag) {
-    window.gtag('config', 'G-XXXXXXXXXX', {
+  if (typeof window !== 'undefined' && window.dataLayer) {
+    window.dataLayer.push({
+      event: 'page_view',
       page_path: url,
     });
   }
@@ -17,8 +18,9 @@ export const trackPageView = (url: string) => {
 
 // Track custom events
 export const trackEvent = (action: string, category: string, label?: string, value?: number) => {
-  if (typeof window !== 'undefined' && window.gtag) {
-    window.gtag('event', action, {
+  if (typeof window !== 'undefined' && window.dataLayer) {
+    window.dataLayer.push({
+      event: action,
       event_category: category,
       event_label: label,
       value: value,
