@@ -12,6 +12,8 @@ An LLM-powered polling app prototype that generates contextual polling topics an
 - **📱 Mobile-First Design**: Fully responsive design that works on all devices
 - **🔍 Clustering Analysis**: Advanced opinion alignment analysis and visualization
 - **🔄 Real-time Results**: See voting patterns and opinion clusters as they develop
+- **📈 User Activity Tracking**: Comprehensive analytics to monitor engagement and usage patterns
+- **🔗 Poll Sharing**: Create shareable links for polls with unique URLs and social sharing capabilities
 
 ## 📚 Research Foundation
 
@@ -283,3 +285,33 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 **Built with ❤️ for democratic participation and community engagement** 
+
+## 🔗 Poll Sharing & Analytics
+
+### 📊 User Activity Tracking
+- **Google Analytics Integration**: Track page views, user engagement, and poll interactions
+- **Backend Activity Logging**: Comprehensive server-side tracking of API usage and user behavior
+- **Event Tracking**: Monitor topic generation, poll launches, votes, and sharing activities
+- **Performance Analytics**: Track generation methods (LLM vs demo), success rates, and error patterns
+
+### 🔗 Poll Sharing System
+- **Unique Poll URLs**: Each generated poll can be saved with a unique shareable URL
+- **Database Storage**: SQLite-based storage for persistent poll data
+- **Easy Sharing**: One-click sharing with copy-to-clipboard functionality
+- **Shared Poll Interface**: Dedicated page for participants to access shared polls
+- **Creator Attribution**: Optional creator names displayed on shared polls
+
+### 🎯 How to Share a Poll
+1. **Generate a Poll** using the main interface
+2. Click **"Share This Poll"** button after generation
+3. **Copy the generated link** and share with your community
+4. **Participants access** the poll via the shared URL
+5. **View results** on the same results page with combined data
+
+### 📈 Analytics Dashboard
+The app tracks:
+- **Topic Generation Requests**: Location, domain, population size
+- **Generation Methods**: LLM success vs demo fallback usage
+- **Poll Engagement**: Launch rates, completion rates, vote patterns
+- **Sharing Activity**: Poll saves, link copies, shared poll access
+- **Error Tracking**: Failed generations, API issues, user-reported problems 
