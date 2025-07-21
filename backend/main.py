@@ -962,7 +962,36 @@ async def submit_poll_responses(poll_id: str, request: SubmitPollResponseRequest
             if not cursor.fetchone():
                 raise HTTPException(status_code=404, detail="Poll not found")
         
-        # Generate a session ID for this participant
+        # Check if participant has already responded
+        existing_session_id = None
+        if request.participant_name:
+            with get_db_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT DISTINCT participant_session_id 
+                    FROM poll_responses 
+                    WHERE poll_id = ? AND participant_name = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """, (poll_id, request.participant_name))
+                existing_row = cursor.fetchone()
+                if existing_row:
+                    existing_session_id = existing_row['participant_session_id']
+        
+        # If retaking, delete previous responses
+        if existing_session_id:
+            with get_db_connection() as conn:
+                conn.execute("""
+                    DELETE FROM poll_responses 
+                    WHERE poll_id = ? AND participant_session_id = ?
+                """, (poll_id, existing_session_id))
+                conn.commit()
+            
+            log_user_activity("poll_retaken", {
+                "poll_id": poll_id,
+                "participant_name": request.participant_name,
+                "previous_session_id": existing_session_id
+            })
+        
+        # Generate a new session ID for this participant
         participant_session_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
         
@@ -988,13 +1017,15 @@ async def submit_poll_responses(poll_id: str, request: SubmitPollResponseRequest
             "poll_id": poll_id,
             "participant_name": request.participant_name,
             "response_count": len(request.responses),
-            "participant_session_id": participant_session_id
+            "participant_session_id": participant_session_id,
+            "is_retake": existing_session_id is not None
         })
         
         return {
             "success": True,
             "participant_session_id": participant_session_id,
-            "responses_saved": len(request.responses)
+            "responses_saved": len(request.responses),
+            "is_retake": existing_session_id is not None
         }
         
     except HTTPException:
@@ -1002,6 +1033,30 @@ async def submit_poll_responses(poll_id: str, request: SubmitPollResponseRequest
     except Exception as e:
         logger.error(f"Error submitting poll responses: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error submitting responses: {str(e)}")
+
+@app.get("/poll/{poll_id}/participant/{participant_name}")
+async def check_participant_status(poll_id: str, participant_name: str):
+    """Check if a participant has already taken the poll"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as response_count, MAX(timestamp) as last_taken
+                FROM poll_responses 
+                WHERE poll_id = ? AND participant_name = ?
+            """, (poll_id, participant_name))
+            result = cursor.fetchone()
+            
+            has_responded = result['response_count'] > 0
+            
+            return {
+                "has_responded": has_responded,
+                "response_count": result['response_count'],
+                "last_taken": result['last_taken'] if has_responded else None
+            }
+            
+    except Exception as e:
+        logger.error(f"Error checking participant status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error checking participant status: {str(e)}")
 
 @app.get("/poll/{poll_id}/results", response_model=PollResultsResponse)
 async def get_poll_results(poll_id: str):

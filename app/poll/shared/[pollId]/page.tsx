@@ -40,6 +40,9 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
   const [showUserInput, setShowUserInput] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasParticipated, setHasParticipated] = useState(false);
+  const [lastTaken, setLastTaken] = useState<string | null>(null);
+  const [checkingParticipant, setCheckingParticipant] = useState(false);
 
   const voteOptions = [
     { value: 'agree', label: 'Agree', color: 'bg-green-500', emoji: '👍' },
@@ -148,13 +151,33 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
     }
   };
 
+  const checkParticipantStatus = async (name: string) => {
+    if (!name.trim()) return;
+    
+    setCheckingParticipant(true);
+    try {
+      const response = await fetch(`https://llm-powered-polling-app-prototype-production-7369.up.railway.app/poll/${params.pollId}/participant/${encodeURIComponent(name)}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setHasParticipated(data.has_responded);
+        setLastTaken(data.last_taken);
+      }
+    } catch (error) {
+      console.error('Error checking participant status:', error);
+      // Continue anyway if check fails
+    }
+    setCheckingParticipant(false);
+  };
+
   const handleStartPoll = () => {
     if (userName.trim()) {
       localStorage.setItem('userName', userName);
       setShowUserInput(false);
       
       // Track poll start
-      trackUserEngagement('shared_poll_started', `poll_id: ${params.pollId}, user: ${userName}`);
+      const eventType = hasParticipated ? 'shared_poll_retaken' : 'shared_poll_started';
+      trackUserEngagement(eventType, `poll_id: ${params.pollId}, user: ${userName}`);
     }
   };
 
@@ -233,17 +256,49 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
               <input
                 type="text"
                 value={userName}
-                onChange={(e) => setUserName(e.target.value)}
+                onChange={(e) => {
+                  setUserName(e.target.value);
+                  setHasParticipated(false); // Reset status when name changes
+                }}
+                onBlur={(e) => checkParticipantStatus(e.target.value)}
                 placeholder="Enter your name..."
                 className="w-full p-4 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+              
+              {checkingParticipant && (
+                <div className="mt-2 text-sm text-gray-500 flex items-center gap-2">
+                  <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                  Checking previous responses...
+                </div>
+              )}
+              
+              {hasParticipated && !checkingParticipant && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-yellow-600">⚠️</span>
+                    <span className="font-medium text-yellow-800">You&apos;ve already taken this poll</span>
+                  </div>
+                  <p className="text-sm text-yellow-700">
+                    Last completed: {lastTaken ? new Date(lastTaken).toLocaleDateString() : 'Recently'}
+                  </p>
+                  <p className="text-sm text-yellow-600 mt-1">
+                    You can retake it, which will replace your previous responses.
+                  </p>
+                </div>
+              )}
             </div>
 
             <button
               onClick={handleStartPoll}
-              className="w-full bg-blue-600 text-white p-4 rounded-2xl hover:bg-blue-700 transition-colors font-medium"
+              disabled={checkingParticipant}
+              className="w-full bg-blue-600 text-white p-4 rounded-2xl hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Start Poll
+              {checkingParticipant 
+                ? 'Checking...' 
+                : hasParticipated 
+                  ? 'Retake Poll' 
+                  : 'Start Poll'
+              }
             </button>
           </div>
         </div>
