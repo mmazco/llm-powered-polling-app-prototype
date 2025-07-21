@@ -11,6 +11,7 @@ import uuid
 from contextlib import contextmanager
 from openai import OpenAI
 
+
 app = FastAPI(title="Community Polling Topic Generator", version="1.0.0")
 
 # Add CORS middleware
@@ -57,15 +58,59 @@ def log_user_activity(activity_type: str, details: Dict[str, Any], request_ip: s
 # OpenAI setup - set your API key as environment variable
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
 
-# Database setup for poll sharing - use persistent volume in production
-if os.getenv("RAILWAY_ENVIRONMENT"):
-    # In Railway, use persistent volume
-    DATABASE_PATH = "/data/polls.db"
-    # Ensure data directory exists
-    os.makedirs("/data", exist_ok=True)
+# Database setup for poll sharing - try multiple persistent paths
+if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+    # Try different potential persistent paths in Railway
+    possible_paths = ["/data", "/tmp", "/app/data", "/storage"]
+    DATABASE_PATH = None
+    
+    for path in possible_paths:
+        try:
+            os.makedirs(path, exist_ok=True)
+            test_file = os.path.join(path, "test_write.txt")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            DATABASE_PATH = os.path.join(path, "polls.db")
+            logger.info(f"Using writable path: {DATABASE_PATH}")
+            break
+        except Exception as e:
+            logger.warning(f"Path {path} not writable: {e}")
+            continue
+    
+    if not DATABASE_PATH:
+        # Fallback to current directory
+        DATABASE_PATH = "polls.db"
+        logger.warning("No persistent path found, using current directory")
 else:
     # Local development
     DATABASE_PATH = os.getenv("DATABASE_PATH", "polls.db")
+
+logger.info(f"Final database path: {DATABASE_PATH}")
+
+# Add startup logging to track database file lifecycle
+@app.on_event("startup")
+async def startup_event():
+    """Log database status on startup"""
+    logger.info(f"=== APPLICATION STARTUP ===")
+    logger.info(f"Environment: {os.getenv('RAILWAY_ENVIRONMENT', 'local')}")
+    logger.info(f"Railway Project ID: {os.getenv('RAILWAY_PROJECT_ID', 'none')}")
+    logger.info(f"Database path: {DATABASE_PATH}")
+    logger.info(f"Database file exists: {os.path.exists(DATABASE_PATH)}")
+    if os.path.exists(DATABASE_PATH):
+        logger.info(f"Database file size: {os.path.getsize(DATABASE_PATH)} bytes")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Directory contents: {os.listdir('.')}")
+    logger.info(f"=== END STARTUP ===")
+
+@app.on_event("shutdown") 
+async def shutdown_event():
+    """Log database status on shutdown"""
+    logger.info(f"=== APPLICATION SHUTDOWN ===")
+    logger.info(f"Database file exists: {os.path.exists(DATABASE_PATH)}")
+    if os.path.exists(DATABASE_PATH):
+        logger.info(f"Database file size: {os.path.getsize(DATABASE_PATH)} bytes")
+    logger.info(f"=== END SHUTDOWN ===")
 
 @contextmanager
 def get_db_connection():
@@ -999,6 +1044,13 @@ async def get_poll_stats():
 async def debug_database():
     """Debug endpoint to check database state"""
     try:
+        # File system info
+        file_exists = os.path.exists(DATABASE_PATH)
+        file_size = os.path.getsize(DATABASE_PATH) if file_exists else 0
+        directory = os.path.dirname(DATABASE_PATH)
+        dir_contents = os.listdir(directory) if os.path.exists(directory) else []
+        
+        # Database info
         with get_db_connection() as conn:
             # Check if tables exist
             cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -1008,23 +1060,59 @@ async def debug_database():
             cursor = conn.execute("SELECT COUNT(*) as count FROM shared_polls")
             poll_count = cursor.fetchone()['count']
             
-            # Get response count
+            # Get response count  
             cursor = conn.execute("SELECT COUNT(*) as count FROM poll_responses")
             response_count = cursor.fetchone()['count']
             
+            # Get recent polls
+            cursor = conn.execute("SELECT poll_id, title, created_at FROM shared_polls ORDER BY created_at DESC LIMIT 3")
+            recent_polls = [dict(row) for row in cursor.fetchall()]
+            
             return {
                 "database_file": DATABASE_PATH,
+                "file_exists": file_exists,
+                "file_size": file_size,
+                "directory": directory,
+                "directory_contents": dir_contents,
                 "tables": tables,
                 "polls_count": poll_count,
                 "responses_count": response_count,
-                "status": "healthy"
+                "recent_polls": recent_polls,
+                "status": "healthy",
+                "timestamp": datetime.now().isoformat()
             }
     except Exception as e:
         logger.error(f"Database debug error: {str(e)}")
         return {
             "status": "error",
             "error": str(e),
-            "database_file": DATABASE_PATH
+            "database_file": DATABASE_PATH,
+            "file_exists": os.path.exists(DATABASE_PATH) if DATABASE_PATH else False,
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/health")
+async def health_check():
+    """Quick health check that logs database state"""
+    try:
+        file_exists = os.path.exists(DATABASE_PATH)
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) as count FROM shared_polls")
+            poll_count = cursor.fetchone()['count']
+            
+        logger.info(f"Health check - DB exists: {file_exists}, Polls: {poll_count}")
+        return {
+            "status": "healthy",
+            "database_exists": file_exists,
+            "polls_count": poll_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy", 
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
         }
 
 @app.post("/poll/{poll_id}/responses")
