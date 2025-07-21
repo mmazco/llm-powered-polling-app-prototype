@@ -848,12 +848,19 @@ async def save_poll(request: SavePollRequest):
         poll_id = str(uuid.uuid4())
         created_at = datetime.now().isoformat()
         
+        logger.info(f"Attempting to save poll with ID: {poll_id}")
+        logger.info(f"Poll title: {request.topic.title}")
+        
         # Convert topic to database format
         statements_json = json.dumps([stmt.dict() for stmt in request.topic.statements])
         clusters_json = json.dumps(request.topic.expected_clusters)
         metadata_json = json.dumps(request.topic.metadata)
         
+        logger.info(f"Converted data - statements: {len(request.topic.statements)} items")
+        logger.info(f"Database file: {DATABASE_PATH}")
+        
         with get_db_connection() as conn:
+            logger.info("Database connection established")
             conn.execute("""
                 INSERT INTO shared_polls 
                 (poll_id, title, description, main_theme, statements, expected_clusters, metadata, created_at, creator_name)
@@ -870,6 +877,14 @@ async def save_poll(request: SavePollRequest):
                 request.creator_name
             ))
             conn.commit()
+            logger.info(f"Poll {poll_id} successfully saved to database")
+            
+            # Verify the save worked
+            cursor = conn.execute("SELECT poll_id FROM shared_polls WHERE poll_id = ?", (poll_id,))
+            if cursor.fetchone():
+                logger.info(f"Verification: Poll {poll_id} found in database")
+            else:
+                logger.error(f"Verification failed: Poll {poll_id} not found after save")
         
         # Log poll sharing activity
         log_user_activity("poll_saved", {
@@ -883,6 +898,9 @@ async def save_poll(request: SavePollRequest):
         
     except Exception as e:
         logger.error(f"Error saving poll: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error saving poll: {str(e)}")
 
 @app.get("/poll/{poll_id}", response_model=SharedPoll)
@@ -937,20 +955,52 @@ async def get_poll_stats():
             total_polls = cursor.fetchone()['total_polls']
             
             cursor = conn.execute("""
-                SELECT created_at FROM shared_polls 
-                ORDER BY created_at DESC LIMIT 1
+                SELECT poll_id, title, created_at FROM shared_polls 
+                ORDER BY created_at DESC LIMIT 5
             """)
-            latest_poll_row = cursor.fetchone()
-            latest_poll = latest_poll_row['created_at'] if latest_poll_row else None
+            recent_polls = [dict(row) for row in cursor.fetchall()]
         
         return {
             "total_shared_polls": total_polls,
-            "latest_poll_created": latest_poll
+            "recent_polls": recent_polls,
+            "database_working": True
         }
         
     except Exception as e:
         logger.error(f"Error getting poll stats: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error getting statistics")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.get("/debug/database")
+async def debug_database():
+    """Debug endpoint to check database state"""
+    try:
+        with get_db_connection() as conn:
+            # Check if tables exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row['name'] for row in cursor.fetchall()]
+            
+            # Get poll count
+            cursor = conn.execute("SELECT COUNT(*) as count FROM shared_polls")
+            poll_count = cursor.fetchone()['count']
+            
+            # Get response count
+            cursor = conn.execute("SELECT COUNT(*) as count FROM poll_responses")
+            response_count = cursor.fetchone()['count']
+            
+            return {
+                "database_file": DATABASE_PATH,
+                "tables": tables,
+                "polls_count": poll_count,
+                "responses_count": response_count,
+                "status": "healthy"
+            }
+    except Exception as e:
+        logger.error(f"Database debug error: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "database_file": DATABASE_PATH
+        }
 
 @app.post("/poll/{poll_id}/responses")
 async def submit_poll_responses(poll_id: str, request: SubmitPollResponseRequest):
