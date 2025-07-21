@@ -1081,10 +1081,16 @@ async def get_poll_results(poll_id: str):
             """, (poll_id,))
             responses = cursor.fetchall()
         
-        # Convert poll data back to objects
-        statements = [Statement(**stmt) for stmt in json.loads(poll_row['statements'])]
-        expected_clusters = json.loads(poll_row['expected_clusters'])
-        metadata = json.loads(poll_row['metadata'])
+        # Convert poll data back to objects with error handling
+        try:
+            statements_data = json.loads(poll_row['statements'])
+            statements = [Statement(**stmt) for stmt in statements_data]
+            expected_clusters = json.loads(poll_row['expected_clusters'])
+            metadata = json.loads(poll_row['metadata'])
+        except Exception as e:
+            logger.error(f"Error converting poll data for poll {poll_id}: {str(e)}")
+            logger.error(f"Raw data - statements: {poll_row['statements']}")
+            raise HTTPException(status_code=500, detail=f"Data conversion error: {str(e)}")
         
         poll = SharedPoll(
             poll_id=poll_row['poll_id'],
@@ -1098,8 +1104,9 @@ async def get_poll_results(poll_id: str):
             creator_name=poll_row['creator_name']
         )
         
-        # Calculate aggregated results
-        total_participants = len(set(row['participant_session_id'] for row in responses))
+        # Calculate aggregated results - handle empty responses
+        total_participants = len(set(row['participant_session_id'] for row in responses)) if responses else 0
+        logger.info(f"Poll {poll_id} has {total_participants} participants and {len(responses)} total responses")
         
         # Response summary by statement
         response_summary = {}
