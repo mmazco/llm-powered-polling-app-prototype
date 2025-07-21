@@ -57,9 +57,22 @@ const ResultsPage = () => {
         setVotes(votes);
         setUserName(storedName);
         
-        // Check if this is a shared poll
-        const isShared = topic.metadata?.is_shared_poll && topic.metadata?.poll_id;
+        // Check if this is a shared poll (multiple ways to detect)
+        const hasSharedPollId = topic.metadata?.poll_id;
+        const wasSharedPoll = topic.metadata?.is_shared_poll;
+        const cameFromSharedUrl = document.referrer.includes('/shared/');
+        
+        const isShared = hasSharedPollId || wasSharedPoll || cameFromSharedUrl;
         setIsSharedPoll(isShared);
+        
+        console.log('Shared poll detection:', {
+          metadata: topic.metadata,
+          hasSharedPollId,
+          wasSharedPoll,
+          cameFromSharedUrl,
+          isShared,
+          referrer: document.referrer
+        });
         
         if (isShared) {
           // Load aggregated results for shared poll
