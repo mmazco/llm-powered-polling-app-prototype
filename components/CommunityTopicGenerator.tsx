@@ -149,7 +149,7 @@ const CommunityTopicGenerator = () => {
       // Track poll launch
       trackPollLaunch(generatedTopic.title);
       
-      window.location.href = '/poll';
+      window.open('/poll', '_blank');
     }
   };
 
