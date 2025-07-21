@@ -39,24 +39,60 @@ const ResultsPage = () => {
   const [userName, setUserName] = useState('');
   const [clusterAlignments, setClusterAlignments] = useState<ClusterAlignment[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
+  const [isSharedPoll, setIsSharedPoll] = useState(false);
+  const [aggregatedResults, setAggregatedResults] = useState<any>(null);
+  const [totalParticipants, setTotalParticipants] = useState(0);
 
   useEffect(() => {
-    // Load data from localStorage
-    const storedTopic = localStorage.getItem('currentTopic');
-    const storedVotes = localStorage.getItem('pollVotes');
-    const storedName = localStorage.getItem('userName') || 'Anonymous';
+    const loadResults = async () => {
+      // Load data from localStorage
+      const storedTopic = localStorage.getItem('currentTopic');
+      const storedVotes = localStorage.getItem('pollVotes');
+      const storedName = localStorage.getItem('userName') || 'Anonymous';
 
-    if (storedTopic && storedVotes) {
-      const topic = JSON.parse(storedTopic);
-      const votes = JSON.parse(storedVotes);
-      setTopic(topic);
-      setVotes(votes);
-      setUserName(storedName);
-      calculateClusterAlignments(topic, votes);
-    } else {
-      // Redirect to home if no data
-      window.location.href = '/';
-    }
+      if (storedTopic && storedVotes) {
+        const topic = JSON.parse(storedTopic);
+        const votes = JSON.parse(storedVotes);
+        setTopic(topic);
+        setVotes(votes);
+        setUserName(storedName);
+        
+        // Check if this is a shared poll
+        const isShared = topic.metadata?.is_shared_poll && topic.metadata?.poll_id;
+        setIsSharedPoll(isShared);
+        
+        if (isShared) {
+          // Load aggregated results for shared poll
+          try {
+            const response = await fetch(`https://llm-powered-polling-app-prototype-production-7369.up.railway.app/poll/${topic.metadata.poll_id}/results`);
+            if (response.ok) {
+              const aggregatedData = await response.json();
+              setAggregatedResults(aggregatedData);
+              setTotalParticipants(aggregatedData.total_participants);
+              
+              // Calculate individual cluster alignments from personal votes
+              calculateClusterAlignments(topic, votes);
+            } else {
+              console.warn('Failed to load aggregated results, showing individual results only');
+              setIsSharedPoll(false);
+              calculateClusterAlignments(topic, votes);
+            }
+          } catch (error) {
+            console.error('Error loading aggregated results:', error);
+            setIsSharedPoll(false);
+            calculateClusterAlignments(topic, votes);
+          }
+        } else {
+          // Regular individual poll results
+          calculateClusterAlignments(topic, votes);
+        }
+      } else {
+        // Redirect to home if no data
+        window.location.href = '/';
+      }
+    };
+
+    loadResults();
   }, []);
 
   const calculateClusterAlignments = (topic: GeneratedTopic, votes: VoteResponse[]) => {
@@ -153,12 +189,21 @@ const ResultsPage = () => {
             </button>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <User size={16} />
-              {userName}
+              {isSharedPoll ? `${userName} (${totalParticipants} participants)` : userName}
             </div>
           </div>
           
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Poll Results & Analysis</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {isSharedPoll ? 'Community Poll Results' : 'Poll Results & Analysis'}
+          </h1>
           <p className="text-gray-600">{topic.title}</p>
+          {isSharedPoll && (
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-2xl">
+              <p className="text-blue-700 text-sm font-medium">
+                📊 This shared poll has {totalParticipants} participants. Below you'll see both your individual responses and the community-wide results.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Overview Stats */}
@@ -190,6 +235,84 @@ const ResultsPage = () => {
             <p className="text-sm text-gray-500">opinion groups</p>
           </div>
         </div>
+
+        {/* Community-wide Results (for shared polls) */}
+        {isSharedPoll && aggregatedResults && (
+          <div className="bg-white rounded-3xl shadow-sm p-6 mb-6">
+            <div className="flex items-center gap-3 mb-6">
+              <Users className="text-green-600" size={24} />
+              <h2 className="text-xl font-semibold text-gray-900">Community-Wide Results</h2>
+            </div>
+
+            {/* Community Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                <div className="text-2xl font-bold text-green-600">{aggregatedResults.total_participants}</div>
+                <div className="text-sm text-gray-600">Total Participants</div>
+              </div>
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                                 <div className="text-2xl font-bold text-blue-600">
+                   {Object.values(aggregatedResults.response_summary as Record<string, any>).reduce((sum: number, stmt: any) => sum + stmt.total_responses, 0)}
+                 </div>
+                <div className="text-sm text-gray-600">Total Responses</div>
+              </div>
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                <div className="text-2xl font-bold text-purple-600">{aggregatedResults.cluster_analysis.length}</div>
+                <div className="text-sm text-gray-600">Opinion Clusters</div>
+              </div>
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                <div className="text-2xl font-bold text-orange-600">
+                  {Math.round(aggregatedResults.cluster_analysis.reduce((sum: number, cluster: any) => sum + cluster.agreement_percentage, 0) / aggregatedResults.cluster_analysis.length)}%
+                </div>
+                <div className="text-sm text-gray-600">Avg Agreement</div>
+              </div>
+            </div>
+
+            {/* Cluster Analysis */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900 mb-3">Community Opinion Clusters</h3>
+              {aggregatedResults.cluster_analysis.map((cluster: any, index: number) => (
+                <div key={index} className="border border-gray-200 rounded-2xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{cluster.cluster_name}</h4>
+                      <p className="text-sm text-gray-600">{cluster.cluster_description}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-green-600">{cluster.agreement_percentage}%</div>
+                      <div className="text-sm text-gray-500">Agreement</div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div className="bg-green-100 rounded-lg p-2 text-center">
+                      <div className="font-semibold text-green-800">{cluster.responses.agree}</div>
+                      <div className="text-green-600">Agree</div>
+                    </div>
+                    <div className="bg-red-100 rounded-lg p-2 text-center">
+                      <div className="font-semibold text-red-800">{cluster.responses.disagree}</div>
+                      <div className="text-red-600">Disagree</div>
+                    </div>
+                    <div className="bg-gray-100 rounded-lg p-2 text-center">
+                      <div className="font-semibold text-gray-800">{cluster.responses.skip}</div>
+                      <div className="text-gray-600">Skip</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Your Individual Results */}
+        {isSharedPoll && (
+          <div className="bg-white rounded-3xl shadow-sm p-6 mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <User className="text-blue-600" size={24} />
+              <h2 className="text-xl font-semibold text-gray-900">Your Individual Results</h2>
+            </div>
+          </div>
+        )}
 
         {/* Cluster Alignment Visualization */}
         <div className="bg-white rounded-3xl shadow-sm p-6 mb-6">

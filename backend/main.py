@@ -86,6 +86,20 @@ def init_database():
                 creator_name TEXT
             )
         """)
+        
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS poll_responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                poll_id TEXT NOT NULL,
+                participant_name TEXT,
+                statement_index INTEGER NOT NULL,
+                response TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                participant_session_id TEXT,
+                FOREIGN KEY (poll_id) REFERENCES shared_polls (poll_id)
+            )
+        """)
+        
         conn.commit()
 
 # Initialize database on startup
@@ -136,6 +150,24 @@ class SharedPoll(BaseModel):
 class SavePollRequest(BaseModel):
     topic: GeneratedTopic
     creator_name: Optional[str] = None
+
+class PollResponse(BaseModel):
+    poll_id: str
+    participant_name: Optional[str] = None
+    statement_index: int
+    response: str  # 'agree', 'disagree', 'skip'
+    timestamp: str
+
+class SubmitPollResponseRequest(BaseModel):
+    poll_id: str
+    participant_name: Optional[str] = None
+    responses: List[Dict[str, Any]]  # List of {statementIndex, response}
+
+class PollResultsResponse(BaseModel):
+    poll: SharedPoll
+    total_participants: int
+    response_summary: Dict[str, Any]  # Aggregated response data
+    cluster_analysis: List[Dict[str, Any]]
 
 class DemoTopicGenerator:
     def __init__(self):
@@ -919,6 +951,159 @@ async def get_poll_stats():
     except Exception as e:
         logger.error(f"Error getting poll stats: {str(e)}")
         raise HTTPException(status_code=500, detail="Error getting statistics")
+
+@app.post("/poll/{poll_id}/responses")
+async def submit_poll_responses(poll_id: str, request: SubmitPollResponseRequest):
+    """Submit responses for a shared poll"""
+    try:
+        # Verify poll exists
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT poll_id FROM shared_polls WHERE poll_id = ?", (poll_id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Poll not found")
+        
+        # Generate a session ID for this participant
+        participant_session_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+        
+        # Save all responses
+        with get_db_connection() as conn:
+            for response in request.responses:
+                conn.execute("""
+                    INSERT INTO poll_responses 
+                    (poll_id, participant_name, statement_index, response, timestamp, participant_session_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    poll_id,
+                    request.participant_name,
+                    response["statementIndex"],
+                    response["response"],
+                    timestamp,
+                    participant_session_id
+                ))
+            conn.commit()
+        
+        # Log the response submission
+        log_user_activity("poll_responses_submitted", {
+            "poll_id": poll_id,
+            "participant_name": request.participant_name,
+            "response_count": len(request.responses),
+            "participant_session_id": participant_session_id
+        })
+        
+        return {
+            "success": True,
+            "participant_session_id": participant_session_id,
+            "responses_saved": len(request.responses)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting poll responses: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error submitting responses: {str(e)}")
+
+@app.get("/poll/{poll_id}/results", response_model=PollResultsResponse)
+async def get_poll_results(poll_id: str):
+    """Get aggregated results for a shared poll"""
+    try:
+        # Get poll data
+        with get_db_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM shared_polls WHERE poll_id = ?
+            """, (poll_id,))
+            poll_row = cursor.fetchone()
+            
+            if not poll_row:
+                raise HTTPException(status_code=404, detail="Poll not found")
+            
+            # Get all responses for this poll
+            cursor = conn.execute("""
+                SELECT participant_session_id, participant_name, statement_index, response, timestamp
+                FROM poll_responses 
+                WHERE poll_id = ?
+                ORDER BY timestamp
+            """, (poll_id,))
+            responses = cursor.fetchall()
+        
+        # Convert poll data back to objects
+        statements = [Statement(**stmt) for stmt in json.loads(poll_row['statements'])]
+        expected_clusters = json.loads(poll_row['expected_clusters'])
+        metadata = json.loads(poll_row['metadata'])
+        
+        poll = SharedPoll(
+            poll_id=poll_row['poll_id'],
+            title=poll_row['title'],
+            description=poll_row['description'],
+            main_theme=poll_row['main_theme'],
+            statements=statements,
+            expected_clusters=expected_clusters,
+            metadata=metadata,
+            created_at=poll_row['created_at'],
+            creator_name=poll_row['creator_name']
+        )
+        
+        # Calculate aggregated results
+        total_participants = len(set(row['participant_session_id'] for row in responses))
+        
+        # Response summary by statement
+        response_summary = {}
+        for i, statement in enumerate(statements):
+            statement_responses = [r for r in responses if r['statement_index'] == i]
+            response_summary[i] = {
+                "statement": statement.text,
+                "category": statement.category,
+                "expected_cluster": statement.expected_cluster,
+                "responses": {
+                    "agree": len([r for r in statement_responses if r['response'] == 'agree']),
+                    "disagree": len([r for r in statement_responses if r['response'] == 'disagree']),
+                    "skip": len([r for r in statement_responses if r['response'] == 'skip'])
+                },
+                "total_responses": len(statement_responses)
+            }
+        
+        # Cluster analysis
+        cluster_analysis = []
+        for cluster in expected_clusters:
+            cluster_statements = [i for i, stmt in enumerate(statements) if stmt.expected_cluster == cluster['name']]
+            cluster_responses = [r for r in responses if r['statement_index'] in cluster_statements]
+            
+            agree_count = len([r for r in cluster_responses if r['response'] == 'agree'])
+            disagree_count = len([r for r in cluster_responses if r['response'] == 'disagree'])
+            skip_count = len([r for r in cluster_responses if r['response'] == 'skip'])
+            total_count = len(cluster_responses)
+            
+            cluster_analysis.append({
+                "cluster_name": cluster['name'],
+                "cluster_description": cluster['description'],
+                "responses": {
+                    "agree": agree_count,
+                    "disagree": disagree_count,
+                    "skip": skip_count
+                },
+                "total_responses": total_count,
+                "agreement_percentage": round((agree_count / total_count * 100) if total_count > 0 else 0, 1)
+            })
+        
+        # Log results access
+        log_user_activity("poll_results_accessed", {
+            "poll_id": poll_id,
+            "total_participants": total_participants,
+            "total_responses": len(responses)
+        })
+        
+        return PollResultsResponse(
+            poll=poll,
+            total_participants=total_participants,
+            response_summary=response_summary,
+            cluster_analysis=cluster_analysis
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting poll results: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting poll results: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

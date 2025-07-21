@@ -98,9 +98,11 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
     if (currentStatement < (poll?.statements.length || 0) - 1) {
       setTimeout(() => setCurrentStatement(prev => prev + 1), 500);
     } else {
-      // Save votes and redirect to results
-      setTimeout(() => {
+      // Save votes and submit to database, then redirect to results
+      setTimeout(async () => {
         const updatedVotes = [...votes.filter(v => v.statementIndex !== currentStatement), newVote];
+        
+        // Save to localStorage (for fallback)
         localStorage.setItem('pollVotes', JSON.stringify(updatedVotes));
         localStorage.setItem('currentTopic', JSON.stringify({
           title: poll?.title,
@@ -108,12 +110,38 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
           main_theme: poll?.main_theme,
           statements: poll?.statements,
           expected_clusters: poll?.expected_clusters,
-          metadata: { ...poll?.metadata, poll_id: params.pollId }
+          metadata: { ...poll?.metadata, poll_id: params.pollId, is_shared_poll: true }
         }));
         localStorage.setItem('userName', userName);
         
-        // Track completion
-        trackUserEngagement('shared_poll_completed', `poll_id: ${params.pollId}, votes: ${updatedVotes.length}`);
+        // Submit responses to database
+        try {
+          const response = await fetch(`https://llm-powered-polling-app-prototype-production-7369.up.railway.app/poll/${params.pollId}/responses`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              poll_id: params.pollId,
+              participant_name: userName || 'Anonymous',
+              responses: updatedVotes.map(vote => ({
+                statementIndex: vote.statementIndex,
+                response: vote.response
+              }))
+            })
+          });
+          
+          if (response.ok) {
+            // Track successful submission
+            trackUserEngagement('shared_poll_completed', `poll_id: ${params.pollId}, votes: ${updatedVotes.length}, submitted: true`);
+          } else {
+            console.warn('Failed to submit responses to database, using local storage only');
+            trackUserEngagement('shared_poll_completed', `poll_id: ${params.pollId}, votes: ${updatedVotes.length}, submitted: false`);
+          }
+        } catch (error) {
+          console.error('Error submitting responses:', error);
+          trackUserEngagement('shared_poll_completed', `poll_id: ${params.pollId}, votes: ${updatedVotes.length}, submitted: false`);
+        }
         
         window.location.href = '/results';
       }, 500);
@@ -315,7 +343,8 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
               
               {votes.length > 0 && (
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    // Save to localStorage (for fallback)
                     localStorage.setItem('pollVotes', JSON.stringify(votes));
                     localStorage.setItem('currentTopic', JSON.stringify({
                       title: poll.title,
@@ -323,9 +352,38 @@ const SharedPollPage = ({ params }: { params: { pollId: string } }) => {
                       main_theme: poll.main_theme,
                       statements: poll.statements,
                       expected_clusters: poll.expected_clusters,
-                      metadata: { ...poll.metadata, poll_id: params.pollId }
+                      metadata: { ...poll.metadata, poll_id: params.pollId, is_shared_poll: true }
                     }));
                     localStorage.setItem('userName', userName);
+                    
+                    // Submit partial responses to database
+                    try {
+                      const response = await fetch(`https://llm-powered-polling-app-prototype-production-7369.up.railway.app/poll/${params.pollId}/responses`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          poll_id: params.pollId,
+                          participant_name: userName || 'Anonymous',
+                          responses: votes.map(vote => ({
+                            statementIndex: vote.statementIndex,
+                            response: vote.response
+                          }))
+                        })
+                      });
+                      
+                      if (response.ok) {
+                        trackUserEngagement('shared_poll_partial_results', `poll_id: ${params.pollId}, votes: ${votes.length}, submitted: true`);
+                      } else {
+                        console.warn('Failed to submit partial responses');
+                        trackUserEngagement('shared_poll_partial_results', `poll_id: ${params.pollId}, votes: ${votes.length}, submitted: false`);
+                      }
+                    } catch (error) {
+                      console.error('Error submitting partial responses:', error);
+                      trackUserEngagement('shared_poll_partial_results', `poll_id: ${params.pollId}, votes: ${votes.length}, submitted: false`);
+                    }
+                    
                     window.location.href = '/results';
                   }}
                   className="flex items-center gap-2 px-6 py-3 bg-blue-100 text-blue-700 rounded-2xl hover:bg-blue-200 transition-colors"
