@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -6,6 +6,9 @@ import json
 import logging
 from datetime import datetime
 import os
+import sqlite3
+import uuid
+from contextlib import contextmanager
 from openai import OpenAI
 
 app = FastAPI(title="Community Polling Topic Generator", version="1.0.0")
@@ -20,11 +23,73 @@ app.add_middleware(
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+# Activity tracking
+import json
+from datetime import datetime
+import os
+
+def log_user_activity(activity_type: str, details: Dict[str, Any], request_ip: str = "unknown"):
+    """Log user activity for analytics"""
+    activity = {
+        "timestamp": datetime.now().isoformat(),
+        "activity_type": activity_type,
+        "details": details,
+        "request_ip": request_ip
+    }
+    
+    # Log to console (will be captured by deployment platforms)
+    logger.info(f"USER_ACTIVITY: {json.dumps(activity)}")
+    
+    # Optionally write to file for local development
+    if os.getenv("ENVIRONMENT") != "production":
+        try:
+            with open("user_activity.log", "a") as f:
+                f.write(f"{json.dumps(activity)}\n")
+        except Exception as e:
+            logger.warning(f"Failed to write activity log: {e}")
 
 # OpenAI setup - set your API key as environment variable
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
+
+# Database setup for poll sharing
+DATABASE_PATH = os.getenv("DATABASE_PATH", "polls.db")
+
+@contextmanager
+def get_db_connection():
+    """Context manager for database connections"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+def init_database():
+    """Initialize the database with required tables"""
+    with get_db_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS shared_polls (
+                poll_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                main_theme TEXT NOT NULL,
+                statements TEXT NOT NULL,
+                expected_clusters TEXT NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                creator_name TEXT
+            )
+        """)
+        conn.commit()
+
+# Initialize database on startup
+init_database()
 
 class CommunityContext(BaseModel):
     location: str
@@ -55,6 +120,22 @@ class TopicRequest(BaseModel):
 # Legacy support for old API format
 class GenerateTopicRequest(BaseModel):
     community_context: CommunityContext
+
+# Poll sharing models
+class SharedPoll(BaseModel):
+    poll_id: str
+    title: str
+    description: str
+    main_theme: str
+    statements: List[Statement]
+    expected_clusters: List[Dict[str, str]]
+    metadata: Dict[str, Any]
+    created_at: str
+    creator_name: Optional[str] = None
+
+class SavePollRequest(BaseModel):
+    topic: GeneratedTopic
+    creator_name: Optional[str] = None
 
 class DemoTopicGenerator:
     def __init__(self):
@@ -606,6 +687,15 @@ async def generate_topic_endpoint(request: TopicRequest):
         if not request.community_context.location:
             raise HTTPException(status_code=400, detail="Location is required")
         
+        # Log user activity
+        log_user_activity("topic_generation_request", {
+            "location": request.community_context.location,
+            "topic_domain": request.topic_domain,
+            "population_size": request.community_context.population_size,
+            "has_current_issues": bool(request.community_context.current_issues),
+            "has_previous_topics": bool(request.community_context.previous_topics)
+        })
+        
         # Debug logging
         logger.info(f"Received request - topic_domain: {request.topic_domain}, location: {request.community_context.location}")
         
@@ -613,16 +703,63 @@ async def generate_topic_endpoint(request: TopicRequest):
         if openai_client:
             try:
                 logger.info("Using OpenAI LLM generation")
-                return await generate_topic_with_llm(request.community_context, request.topic_domain)
+                topic = await generate_topic_with_llm(request.community_context, request.topic_domain)
+                
+                # Log successful LLM generation
+                log_user_activity("topic_generated", {
+                    "method": "llm",
+                    "location": request.community_context.location,
+                    "topic_title": topic.title,
+                    "statement_count": len(topic.statements),
+                    "cluster_count": len(topic.expected_clusters)
+                })
+                
+                return topic
             except Exception as e:
                 logger.warning(f"OpenAI generation failed, falling back to demo: {str(e)}")
-                return await topic_generator.generate_topic(request)
+                
+                # Log LLM failure
+                log_user_activity("topic_generation_fallback", {
+                    "reason": str(e),
+                    "location": request.community_context.location
+                })
+                
+                topic = await topic_generator.generate_topic(request)
+                
+                # Log demo generation
+                log_user_activity("topic_generated", {
+                    "method": "demo",
+                    "location": request.community_context.location,
+                    "topic_title": topic.title,
+                    "statement_count": len(topic.statements),
+                    "cluster_count": len(topic.expected_clusters)
+                })
+                
+                return topic
         else:
             logger.info("No OpenAI API key, using demo generation")
-            return await topic_generator.generate_topic(request)
+            topic = await topic_generator.generate_topic(request)
+            
+            # Log demo generation
+            log_user_activity("topic_generated", {
+                "method": "demo",
+                "location": request.community_context.location,
+                "topic_title": topic.title,
+                "statement_count": len(topic.statements),
+                "cluster_count": len(topic.expected_clusters)
+            })
+            
+            return topic
         
     except Exception as e:
         logger.error(f"Error generating topic: {str(e)}")
+        
+        # Log error
+        log_user_activity("topic_generation_error", {
+            "error": str(e),
+            "location": request.community_context.location if request.community_context else "unknown"
+        })
+        
         raise HTTPException(status_code=500, detail=f"Error generating topic: {str(e)}")
 
 # Legacy endpoint for backward compatibility
@@ -670,6 +807,118 @@ async def root():
             "demo_domains": list(topic_generator.demo_topics.keys())
         }
     }
+
+# Poll sharing endpoints
+@app.post("/save-poll", response_model=Dict[str, str])
+async def save_poll(request: SavePollRequest):
+    """Save a poll for sharing"""
+    try:
+        poll_id = str(uuid.uuid4())
+        created_at = datetime.now().isoformat()
+        
+        # Convert topic to database format
+        statements_json = json.dumps([stmt.dict() for stmt in request.topic.statements])
+        clusters_json = json.dumps(request.topic.expected_clusters)
+        metadata_json = json.dumps(request.topic.metadata)
+        
+        with get_db_connection() as conn:
+            conn.execute("""
+                INSERT INTO shared_polls 
+                (poll_id, title, description, main_theme, statements, expected_clusters, metadata, created_at, creator_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                poll_id,
+                request.topic.title,
+                request.topic.description,
+                request.topic.main_theme,
+                statements_json,
+                clusters_json,
+                metadata_json,
+                created_at,
+                request.creator_name
+            ))
+            conn.commit()
+        
+        # Log poll sharing activity
+        log_user_activity("poll_saved", {
+            "poll_id": poll_id,
+            "title": request.topic.title,
+            "creator_name": request.creator_name,
+            "statement_count": len(request.topic.statements)
+        })
+        
+        return {"poll_id": poll_id, "share_url": f"/poll/shared/{poll_id}"}
+        
+    except Exception as e:
+        logger.error(f"Error saving poll: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error saving poll: {str(e)}")
+
+@app.get("/poll/{poll_id}", response_model=SharedPoll)
+async def get_shared_poll(poll_id: str):
+    """Get a shared poll by ID"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM shared_polls WHERE poll_id = ?
+            """, (poll_id,))
+            row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Poll not found")
+        
+        # Convert back to objects
+        statements = [Statement(**stmt) for stmt in json.loads(row['statements'])]
+        expected_clusters = json.loads(row['expected_clusters'])
+        metadata = json.loads(row['metadata'])
+        
+        # Log poll access
+        log_user_activity("poll_accessed", {
+            "poll_id": poll_id,
+            "title": row['title'],
+            "creator_name": row['creator_name']
+        })
+        
+        return SharedPoll(
+            poll_id=row['poll_id'],
+            title=row['title'],
+            description=row['description'],
+            main_theme=row['main_theme'],
+            statements=statements,
+            expected_clusters=expected_clusters,
+            metadata=metadata,
+            created_at=row['created_at'],
+            creator_name=row['creator_name']
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting shared poll: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting shared poll: {str(e)}")
+
+@app.get("/polls/stats")
+async def get_poll_stats():
+    """Get basic statistics about shared polls"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) as total_polls FROM shared_polls")
+            total_polls = cursor.fetchone()['total_polls']
+            
+            cursor = conn.execute("""
+                SELECT created_at FROM shared_polls 
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            latest_poll_row = cursor.fetchone()
+            latest_poll = latest_poll_row['created_at'] if latest_poll_row else None
+        
+        return {
+            "total_shared_polls": total_polls,
+            "latest_poll_created": latest_poll
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting poll stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error getting statistics")
 
 if __name__ == "__main__":
     import uvicorn
