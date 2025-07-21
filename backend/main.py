@@ -57,8 +57,15 @@ def log_user_activity(activity_type: str, details: Dict[str, Any], request_ip: s
 # OpenAI setup - set your API key as environment variable
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
 
-# Database setup for poll sharing
-DATABASE_PATH = os.getenv("DATABASE_PATH", "polls.db")
+# Database setup for poll sharing - use persistent volume in production
+if os.getenv("RAILWAY_ENVIRONMENT"):
+    # In Railway, use persistent volume
+    DATABASE_PATH = "/data/polls.db"
+    # Ensure data directory exists
+    os.makedirs("/data", exist_ok=True)
+else:
+    # Local development
+    DATABASE_PATH = os.getenv("DATABASE_PATH", "polls.db")
 
 @contextmanager
 def get_db_connection():
@@ -72,35 +79,53 @@ def get_db_connection():
 
 def init_database():
     """Initialize the database with required tables"""
-    with get_db_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS shared_polls (
-                poll_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                main_theme TEXT NOT NULL,
-                statements TEXT NOT NULL,
-                expected_clusters TEXT NOT NULL,
-                metadata TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                creator_name TEXT
-            )
-        """)
-        
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS poll_responses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                poll_id TEXT NOT NULL,
-                participant_name TEXT,
-                statement_index INTEGER NOT NULL,
-                response TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                participant_session_id TEXT,
-                FOREIGN KEY (poll_id) REFERENCES shared_polls (poll_id)
-            )
-        """)
-        
-        conn.commit()
+    logger.info(f"Initializing database at: {DATABASE_PATH}")
+    logger.info(f"Database absolute path: {os.path.abspath(DATABASE_PATH)}")
+    logger.info(f"Directory exists: {os.path.exists(os.path.dirname(DATABASE_PATH))}")
+    logger.info(f"Directory writable: {os.access(os.path.dirname(DATABASE_PATH), os.W_OK)}")
+    
+    try:
+        with get_db_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS shared_polls (
+                    poll_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    main_theme TEXT NOT NULL,
+                    statements TEXT NOT NULL,
+                    expected_clusters TEXT NOT NULL,
+                    metadata TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    creator_name TEXT
+                )
+            """)
+            
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS poll_responses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    poll_id TEXT NOT NULL,
+                    participant_name TEXT,
+                    statement_index INTEGER NOT NULL,
+                    response TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    participant_session_id TEXT,
+                    FOREIGN KEY (poll_id) REFERENCES shared_polls (poll_id)
+                )
+            """)
+            
+            conn.commit()
+            logger.info("Database initialized successfully")
+            
+            # Check if database file exists after creation
+            if os.path.exists(DATABASE_PATH):
+                file_size = os.path.getsize(DATABASE_PATH)
+                logger.info(f"Database file created: {DATABASE_PATH} (size: {file_size} bytes)")
+            else:
+                logger.error(f"Database file not found after creation: {DATABASE_PATH}")
+                
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        raise
 
 # Initialize database on startup
 init_database()
