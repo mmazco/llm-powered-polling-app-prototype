@@ -1330,6 +1330,50 @@ async def get_poll_results(poll_id: str):
         logger.error(f"Error getting poll results: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting poll results: {str(e)}")
 
+@app.get("/poll/{poll_id}/debug")
+async def debug_poll_participants(poll_id: str):
+    """Debug endpoint to show all participants and their session IDs"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("""
+                SELECT participant_session_id, participant_name, COUNT(*) as response_count, 
+                       MIN(timestamp) as first_response, MAX(timestamp) as last_response
+                FROM poll_responses 
+                WHERE poll_id = ?
+                GROUP BY participant_session_id, participant_name
+                ORDER BY first_response
+            """, (poll_id,))
+            participants = [dict(row) for row in cursor.fetchall()]
+            
+            # Get total unique session IDs
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT participant_session_id) as unique_participants
+                FROM poll_responses 
+                WHERE poll_id = ?
+            """, (poll_id,))
+            unique_count = cursor.fetchone()['unique_participants']
+            
+            # Get all responses for detailed view
+            cursor = conn.execute("""
+                SELECT participant_session_id, participant_name, statement_index, response, timestamp
+                FROM poll_responses 
+                WHERE poll_id = ?
+                ORDER BY participant_session_id, statement_index
+            """, (poll_id,))
+            all_responses = [dict(row) for row in cursor.fetchall()]
+            
+            return {
+                "poll_id": poll_id,
+                "unique_participants": unique_count,
+                "participant_details": participants,
+                "total_responses": len(all_responses),
+                "all_responses": all_responses[:50]  # Limit to first 50 for readability
+            }
+            
+    except Exception as e:
+        logger.error(f"Error debugging poll participants: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001) 
