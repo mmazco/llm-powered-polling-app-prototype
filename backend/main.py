@@ -1183,11 +1183,11 @@ async def get_poll_results(poll_id: str):
         total_participants = len(set(row['participant_session_id'] for row in responses)) if responses else 0
         logger.info(f"Poll {poll_id} has {total_participants} participants and {len(responses)} total responses")
         
-        # Response summary by statement
+        # Response summary by statement - use string keys for Pydantic compatibility
         response_summary = {}
         for i, statement in enumerate(statements):
             statement_responses = [r for r in responses if r['statement_index'] == i]
-            response_summary[i] = {
+            response_summary[str(i)] = {
                 "statement": statement.text,
                 "category": statement.category,
                 "expected_cluster": statement.expected_cluster,
