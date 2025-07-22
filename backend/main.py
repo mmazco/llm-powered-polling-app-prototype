@@ -671,7 +671,7 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
         "education": "Focus on school funding, curriculum, teacher resources, and student outcomes", 
         "crime-public-safety": "Focus on policing, crime prevention, community safety, and justice reform",
         "economic-development": "Focus on local business, jobs, economic growth, and workforce development",
-        "infrastructure-services": "Focus on utilities, roads, public services, and municipal infrastructure",
+        "infrastructure-services": "Focus on city services, infrastructure, and public utilities",
         "local-economy": "Focus on small business support, economic opportunities, and community development"
     }
     
@@ -691,7 +691,7 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
     2. A brief description of what the poll will explore
     3. A main theme question
     4. 8-12 diverse statements that represent different viewpoints on the topic
-    5. Exactly 4 expected opinion clusters that voters might fall into
+    5. Exactly 4 expected opinion clusters that voters might fall into (THIS IS MANDATORY - EXACTLY 4, NO MORE, NO LESS)
     
     Each statement should:
     - Be specific and actionable for {context.location}
@@ -700,6 +700,8 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
     - Have a category and expected cluster
     
     Make the content unique and specific to {context.location} rather than generic.
+    
+    CRITICAL: You MUST provide exactly 4 opinion clusters. If you generate more or fewer than 4, the system will reject your response.
     
     Format the response as JSON with this structure:
     {{
@@ -729,7 +731,7 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
         response = openai_client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are an expert in community engagement and polling design. Generate thoughtful, balanced polling topics that encourage civic participation. Make content specific to the location and topic domain provided."},
+                {"role": "system", "content": "You are an expert in community engagement and polling design. Generate thoughtful, balanced polling topics that encourage civic participation. Make content specific to the location and topic domain provided. YOU MUST ALWAYS GENERATE EXACTLY 4 OPINION CLUSTERS - NO EXCEPTIONS."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2000,
@@ -739,6 +741,11 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
         # Parse the JSON response
         content = response.choices[0].message.content
         topic_data = json.loads(content)
+        
+        # VALIDATE: Ensure exactly 4 clusters
+        if len(topic_data.get("expected_clusters", [])) != 4:
+            logger.warning(f"OpenAI generated {len(topic_data.get('expected_clusters', []))} clusters instead of 4, falling back to demo")
+            raise Exception(f"Invalid cluster count: {len(topic_data.get('expected_clusters', []))} (expected 4)")
         
         # Convert to our model
         statements = [
@@ -769,15 +776,12 @@ async def generate_topic_with_llm(context: CommunityContext, topic_domain: str =
             metadata=metadata
         )
         
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse OpenAI JSON response: {str(e)}")
+        raise Exception("OpenAI returned invalid JSON")
     except Exception as e:
-        logger.error(f"Error generating topic with LLM: {e}")
-        # Fallback to demo topic generator
-        demo_generator = DemoTopicGenerator()
-        return await demo_generator.generate_topic(TopicRequest(
-            community_context=context,
-            topic_domain=topic_domain,
-            statement_count=10
-        ))
+        logger.error(f"OpenAI generation failed: {str(e)}")
+        raise Exception(f"LLM generation failed: {str(e)}")
 
 # Initialize the demo topic generator
 topic_generator = DemoTopicGenerator()
@@ -807,6 +811,10 @@ async def generate_topic_endpoint(request: TopicRequest):
                 logger.info("Using OpenAI LLM generation")
                 topic = await generate_topic_with_llm(request.community_context, request.topic_domain)
                 
+                # Validate cluster count
+                if len(topic.expected_clusters) != 4:
+                    raise Exception(f"Generated {len(topic.expected_clusters)} clusters instead of 4")
+                
                 # Log successful LLM generation
                 log_user_activity("topic_generated", {
                     "method": "llm",
@@ -828,9 +836,13 @@ async def generate_topic_endpoint(request: TopicRequest):
                 
                 topic = await topic_generator.generate_topic(request)
                 
+                # Validate demo topic cluster count too
+                if len(topic.expected_clusters) != 4:
+                    logger.error(f"Demo topic also has {len(topic.expected_clusters)} clusters instead of 4")
+                
                 # Log demo generation
                 log_user_activity("topic_generated", {
-                    "method": "demo",
+                    "method": "demo_fallback",
                     "location": request.community_context.location,
                     "topic_title": topic.title,
                     "statement_count": len(topic.statements),
@@ -1225,6 +1237,8 @@ async def check_participant_status(poll_id: str, participant_name: str):
 async def get_poll_results(poll_id: str):
     """Get aggregated results for a shared poll"""
     try:
+        logger.info(f"Fetching results for poll ID: {poll_id}")
+        
         # Get poll data
         with get_db_connection() as conn:
             cursor = conn.execute("""
@@ -1233,6 +1247,7 @@ async def get_poll_results(poll_id: str):
             poll_row = cursor.fetchone()
             
             if not poll_row:
+                logger.warning(f"Poll not found: {poll_id}")
                 raise HTTPException(status_code=404, detail="Poll not found")
             
             # Get all responses for this poll
@@ -1244,12 +1259,19 @@ async def get_poll_results(poll_id: str):
             """, (poll_id,))
             responses = cursor.fetchall()
         
+        logger.info(f"Found {len(responses)} responses for poll {poll_id}")
+        
         # Convert poll data back to objects with error handling
         try:
             statements_data = json.loads(poll_row['statements'])
             statements = [Statement(**stmt) for stmt in statements_data]
             expected_clusters = json.loads(poll_row['expected_clusters'])
             metadata = json.loads(poll_row['metadata'])
+            
+            # VALIDATE: Ensure exactly 4 clusters
+            if len(expected_clusters) != 4:
+                logger.warning(f"Poll {poll_id} has {len(expected_clusters)} clusters instead of 4")
+                
         except Exception as e:
             logger.error(f"Error converting poll data for poll {poll_id}: {str(e)}")
             logger.error(f"Raw data - statements: {poll_row['statements']}")
@@ -1269,7 +1291,7 @@ async def get_poll_results(poll_id: str):
         
         # Calculate aggregated results - handle empty responses
         total_participants = len(set(row['participant_session_id'] for row in responses)) if responses else 0
-        logger.info(f"Poll {poll_id} has {total_participants} participants and {len(responses)} total responses")
+        logger.info(f"Poll {poll_id} has {total_participants} unique participants and {len(responses)} total responses")
         
         # Response summary by statement - use string keys for Pydantic compatibility
         response_summary = {}
@@ -1314,20 +1336,26 @@ async def get_poll_results(poll_id: str):
         log_user_activity("poll_results_accessed", {
             "poll_id": poll_id,
             "total_participants": total_participants,
-            "total_responses": len(responses)
+            "total_responses": len(responses),
+            "cluster_count": len(expected_clusters)
         })
         
-        return PollResultsResponse(
+        result = PollResultsResponse(
             poll=poll,
             total_participants=total_participants,
             response_summary=response_summary,
             cluster_analysis=cluster_analysis
         )
         
+        logger.info(f"Successfully generated results for poll {poll_id}")
+        return result
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting poll results: {str(e)}")
+        logger.error(f"Error getting poll results for {poll_id}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error getting poll results: {str(e)}")
 
 @app.get("/poll/{poll_id}/debug")

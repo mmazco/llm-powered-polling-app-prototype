@@ -80,23 +80,38 @@ const ResultsPage = () => {
             const response = await fetch(`https://llm-powered-polling-app-prototype-production-7369.up.railway.app/poll/${topic.metadata.poll_id}/results`);
             if (response.ok) {
               const aggregatedData = await response.json();
+              console.log('Aggregated data loaded:', {
+                poll_id: topic.metadata.poll_id,
+                total_participants: aggregatedData.total_participants,
+                cluster_count: aggregatedData.cluster_analysis?.length,
+                response_summary_count: Object.keys(aggregatedData.response_summary || {}).length
+              });
+              
               setAggregatedResults(aggregatedData);
               setTotalParticipants(aggregatedData.total_participants);
               
               // Calculate individual cluster alignments from personal votes
               calculateClusterAlignments(topic, votes);
             } else {
-              console.warn('Failed to load aggregated results, showing individual results only');
+              console.error('Failed to load aggregated results:', {
+                status: response.status,
+                statusText: response.statusText,
+                poll_id: topic.metadata.poll_id
+              });
+              const errorText = await response.text();
+              console.error('Error response:', errorText);
               setIsSharedPoll(false);
               calculateClusterAlignments(topic, votes);
             }
           } catch (error) {
             console.error('Error loading aggregated results:', error);
+            console.error('Poll metadata:', topic.metadata);
             setIsSharedPoll(false);
             calculateClusterAlignments(topic, votes);
           }
         } else {
           // Regular individual poll results
+          console.log('Not a shared poll, showing individual results only');
           calculateClusterAlignments(topic, votes);
         }
       } else {
