@@ -447,7 +447,7 @@ const CommunityTopicGenerator = () => {
                       type="text" 
                       value={shareUrl} 
                       readOnly 
-                      className="flex-1 p-3 text-sm bg-white border border-gray-300 rounded-xl"
+                      className="flex-1 p-3 text-sm bg-white border border-gray-300 rounded-xl text-gray-900"
                     />
                     <button 
                       onClick={handleCopyLink}

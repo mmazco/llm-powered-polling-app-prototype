@@ -136,7 +136,7 @@ const PollPage = () => {
                 type="text"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
-                className="w-full p-4 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-4 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-500"
                 placeholder="Enter your name"
               />
             </div>
@@ -202,7 +202,7 @@ const PollPage = () => {
                 className={`w-full p-4 rounded-2xl border-2 transition-all duration-200 flex items-center justify-center gap-3 ${
                   getCurrentVote()?.response === option.value
                     ? `${option.color} text-white border-transparent shadow-lg`
-                    : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
+                    : 'border-gray-200 hover:border-gray-300 hover:shadow-md text-gray-900'
                 }`}
               >
                 <span className="text-xl">{option.emoji}</span>
