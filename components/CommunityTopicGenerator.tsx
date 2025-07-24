@@ -141,14 +141,43 @@ const CommunityTopicGenerator = () => {
     });
   };
 
-  const handleLaunchPoll = () => {
-    if (generatedTopic) {
-      // Store topic in localStorage and navigate to poll
+  const handleLaunchPoll = async () => {
+    if (!generatedTopic) return;
+    
+    try {
+      // Create a shared poll automatically 
+      const response = await fetch('https://llm-powered-polling-app-prototype-production-7369.up.railway.app/save-poll', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: generatedTopic,
+          creator_name: localStorage.getItem('userName') || 'Anonymous'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const pollUrl = `${window.location.origin}/poll/shared/${data.poll_id}`;
+        
+        // Track poll launch
+        trackPollLaunch(generatedTopic.title);
+        
+        // Open the shared poll
+        window.open(pollUrl, '_blank');
+      } else {
+        // Fallback to individual poll if shared poll creation fails
+        console.warn('Failed to create shared poll, falling back to individual poll');
+        localStorage.setItem('currentTopic', JSON.stringify(generatedTopic));
+        trackPollLaunch(generatedTopic.title);
+        window.open('/poll', '_blank');
+      }
+    } catch (error) {
+      console.error('Error creating shared poll:', error);
+      // Fallback to individual poll
       localStorage.setItem('currentTopic', JSON.stringify(generatedTopic));
-      
-      // Track poll launch
       trackPollLaunch(generatedTopic.title);
-      
       window.open('/poll', '_blank');
     }
   };
@@ -381,7 +410,7 @@ const CommunityTopicGenerator = () => {
                 onClick={handleLaunchPoll}
                 className="w-full bg-blue-600 text-white p-4 rounded-2xl hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2"
               >
-                Launch Community Poll
+                Launch Community Poll (Shared)
                 <ArrowRight size={18} />
               </button>
               
@@ -398,10 +427,14 @@ const CommunityTopicGenerator = () => {
                 ) : (
                   <>
                     <Share2 size={18} />
-                    Share This Poll
+                    Get Shareable Link
                   </>
                 )}
               </button>
+              
+              <div className="text-xs text-gray-500 text-center pt-2">
+                Both options create a shared poll that tracks all participants' responses together
+              </div>
             </div>
 
             {/* Share Options Modal */}

@@ -1309,16 +1309,29 @@ async def get_poll_results(poll_id: str):
                 "total_responses": len(statement_responses)
             }
         
-        # Cluster analysis
+        # Cluster analysis with improved matching
         cluster_analysis = []
         for cluster in expected_clusters:
-            cluster_statements = [i for i, stmt in enumerate(statements) if stmt.expected_cluster == cluster['name']]
+            # Try exact match first, then case-insensitive, then contains
+            cluster_statements = []
+            cluster_name = cluster['name']
+            
+            for i, stmt in enumerate(statements):
+                stmt_cluster = stmt.expected_cluster
+                if (stmt_cluster == cluster_name or 
+                    stmt_cluster.lower() == cluster_name.lower() or
+                    stmt_cluster.lower() in cluster_name.lower() or
+                    cluster_name.lower() in stmt_cluster.lower()):
+                    cluster_statements.append(i)
+            
             cluster_responses = [r for r in responses if r['statement_index'] in cluster_statements]
             
             agree_count = len([r for r in cluster_responses if r['response'] == 'agree'])
             disagree_count = len([r for r in cluster_responses if r['response'] == 'disagree'])
             skip_count = len([r for r in cluster_responses if r['response'] == 'skip'])
             total_count = len(cluster_responses)
+            
+            logger.info(f"Cluster '{cluster_name}': found {len(cluster_statements)} statements, {total_count} responses")
             
             cluster_analysis.append({
                 "cluster_name": cluster['name'],
