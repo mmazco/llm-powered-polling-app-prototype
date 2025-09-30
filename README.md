@@ -137,7 +137,7 @@ npm run backend
 npm run dev
 ```
 
-Visit [https://llm-powered-polling-app-prototype.vercel.app](https://llm-powered-polling-app-prototype.vercel.app) to see the app!
+Visit [https://llm-powered-polling-app-prototype.replit.app](https://llm-powered-polling-app-prototype.replit.app) to see the app!
 
 ## 📖 Usage
 
